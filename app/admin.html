@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot admin</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--line:#e2e5ea;--text:#1d2129;--muted:#667085;--accent:#1f6feb;--danger:#d92d20;--soft:#eef4ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:20px;margin:0 0 14px}
+  h2{font-size:17px;margin:0 0 10px}
+  input,textarea,button{font:inherit}
+  input[type=text],input[type=password],input[type=url],textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--text)}
+  textarea{resize:vertical;min-height:64px}
+  button{padding:8px 14px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:var(--accent)}
+  button.danger{background:#fff;color:var(--danger);border-color:#f3c3be}
+  button.small{padding:5px 10px;font-size:13px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .row>input{flex:1;min-width:180px}
+  .tabs{display:flex;gap:6px;margin:14px 0}
+  .tabs button{background:#fff;color:var(--text);border-color:var(--line)}
+  .tabs button.on{background:var(--text);color:#fff;border-color:var(--text)}
+  .hidden{display:none!important}
+  .muted{color:var(--muted);font-size:13px}
+  label{display:block;font-weight:600;font-size:13px;margin:12px 0 4px}
+  pre{background:var(--bg);padding:12px;border-radius:8px;white-space:pre-wrap;margin:10px 0 0;font-size:13px}
+  /* chat */
+  #chat{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .msg{padding:8px 12px;border-radius:12px;max-width:85%;white-space:pre-wrap}
+  .u{background:var(--accent);color:#fff;align-self:flex-end}
+  .b{background:var(--bg);align-self:flex-start}
+  .b img{display:block;max-width:min(100%,360px);border-radius:8px;margin-top:6px;border:1px solid var(--line)}
+  .cards{display:flex;gap:8px;overflow-x:auto;padding:2px 0 6px;align-self:stretch}
+  .pcard{flex:0 0 180px;border:1px solid var(--line);border-radius:10px;padding:10px;background:#fff}
+  .pcard b{display:block;font-size:14px;line-height:1.3}
+  .pcard small{display:block;color:var(--muted);margin:4px 0 8px}
+  .pcard a{display:block;text-align:center;padding:6px;border-radius:6px;background:var(--accent);color:#fff;text-decoration:none;font-size:13px}
+  /* guides */
+  .glist{display:flex;flex-direction:column;gap:8px}
+  .gitem{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
+  .step{border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0;background:#fcfcfd}
+  .step-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .thumb{display:block;max-width:220px;max-height:160px;border-radius:8px;border:1px solid var(--line);margin-top:8px}
+  .error{color:var(--danger);font-size:14px;margin-top:8px}
+  .import{background:var(--soft);border-radius:10px;padding:12px;margin:0 0 14px}
+  .note{background:var(--soft);border-radius:8px;padding:8px 10px;font-size:14px;margin-bottom:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>WooCommerce Chatwoot Bot</h1>
+  <div class="panel">
+    <div class="row">
+      <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="current-password">
+      <button onclick="saveToken()">Unlock</button>
+    </div>
+    <div class="muted" id="tokenNote">Enter the ADMIN_TOKEN from your Docker settings.</div>
+  </div>
+
+  <div class="tabs">
+    <button data-tab="chat" class="on">Test chat</button>
+    <button data-tab="guides">Guides</button>
+    <button data-tab="site">Website sync</button>
+  </div>
+
+  <!-- TEST CHAT -->
+  <section id="tab-chat" class="panel">
+    <h2>Test chat</h2>
+    <p class="muted">Ask what a customer would ask. Nothing here is sent to Chatwoot.</p>
+    <div id="chat"></div>
+    <div class="row">
+      <input id="m" type="text" placeholder="e.g. How do I cancel my order?" onkeydown="if(event.key==='Enter')ask()">
+      <button onclick="ask()">Send</button>
+    </div>
+  </section>
+
+  <!-- GUIDES -->
+  <section id="tab-guides" class="hidden">
+    <div class="panel" id="guideListPanel">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">Guides</h2>
+        <button onclick="editGuide()">+ New guide</button>
+      </div>
+      <p class="muted">Step-by-step help with screenshots, for example "How to cancel an order".
+        When a customer asks about it, the bot sends each step with its screenshot.</p>
+      <div class="import">
+        <b>Import from a document</b>
+        <div class="row" style="margin-top:8px">
+          <input id="gdocUrl" type="url" placeholder="Paste a Google Docs link (shared as “Anyone with the link”)">
+          <button class="ghost" onclick="importGoogle()" id="gdocBtn">Import Google Doc</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input id="pdfFile" type="file" accept="application/pdf">
+          <button class="ghost" onclick="importPdf()" id="pdfBtn">Import PDF</button>
+        </div>
+        <div class="muted" id="importMsg">Each paragraph becomes a step and each picture becomes that step's screenshot. You can review everything before saving.</div>
+      </div>
+      <div class="glist" id="glist"></div>
+    </div>
+
+    <div class="panel hidden" id="editor">
+      <h2 id="edTitle">New guide</h2>
+      <div class="note hidden" id="edNote"></div>
+      <label for="gTitle">Title</label>
+      <input id="gTitle" type="text" placeholder="How to cancel an order">
+      <label for="gKeys">Customers might ask… <span class="muted">(words and phrases, comma separated)</span></label>
+      <textarea id="gKeys" placeholder="cancel order, cancel my order, stop order, order cancellation"></textarea>
+      <label for="gLink">Link at the end <span class="muted">(optional)</span></label>
+      <input id="gLink" type="url" placeholder="https://jiaexpress.com/my-account/orders">
+      <label>Steps</label>
+      <div id="steps"></div>
+      <button class="ghost" onclick="addStep()">+ Add step</button>
+      <div class="error" id="gErr"></div>
+      <div class="row" style="margin-top:16px">
+        <button onclick="saveGuide()" id="saveBtn">Save guide</button>
+        <button class="ghost" onclick="closeEditor()">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- WEBSITE SYNC -->
+  <section id="tab-site" class="panel hidden">
+    <h2>Website content</h2>
+    <p class="muted">The bot re-reads your sitemap automatically every day. Sync now after adding pages or products.</p>
+    <div class="row">
+      <button onclick="sync(false)">Sync changed pages</button>
+      <button class="ghost" onclick="sync(true)">Full re-sync</button>
+      <button class="ghost" onclick="stats()">Show stats</button>
+    </div>
+    <pre id="out">Click "Show stats".</pre>
+  </section>
+</div>
+
+<script>
+let TOKEN = '';
+try { TOKEN = sessionStorage.getItem('botAdminToken') || ''; } catch (e) {}
+const $ = id => document.getElementById(id);
+$('token').value = TOKEN;
+if (TOKEN) $('tokenNote').textContent = 'Unlocked.';
+
+function saveToken() {
+  TOKEN = $('token').value.trim();
+  try { sessionStorage.setItem('botAdminToken', TOKEN); } catch (e) {}
+  $('tokenNote').textContent = 'Unlocked.';
+  loadGuides();
+}
+function q(path) { return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN); }
+async function api(path, opts) {
+  const r = await fetch(q(path), opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || ('Error ' + r.status));
+  return data;
+}
+
+// tabs
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['chat', 'guides', 'site'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+  if (b.dataset.tab === 'guides') loadGuides();
+});
+
+// ---------------- test chat
+function bubble(cls, text) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = (text || '').replace(/\*\*/g, '');
+  $('chat').appendChild(d); return d;
+}
+async function ask() {
+  const v = $('m').value.trim(); if (!v) return;
+  $('m').value = ''; bubble('u', v);
+  try {
+    const r = await api('/admin/ask', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                       body: JSON.stringify({message: v, session: 'admin'})});
+    bubble('b', (r.reply || '(no reply)') + (r.handoff ? '\n→ handed to a human' : ''));
+    if (r.cards && r.cards.length) {
+      const w = document.createElement('div'); w.className = 'cards';
+      r.cards.forEach(c => {
+        const d = document.createElement('div'); d.className = 'pcard';
+        const t = document.createElement('b'); t.textContent = c.title;
+        const s = document.createElement('small'); s.textContent = c.description;
+        const a = document.createElement('a'); a.href = c.actions[0].uri; a.target = '_blank'; a.textContent = c.actions[0].text;
+        d.append(t, s, a); w.appendChild(d);
+      });
+      $('chat').appendChild(w);
+    }
+    if (r.guide) {
+      r.guide.steps.forEach(st => {
+        const d = bubble('b', st.text);
+        if (st.image_url) { const i = document.createElement('img'); i.src = st.image_url; i.alt = ''; d.appendChild(i); }
+      });
+      if (r.guide.link) bubble('b', '👉 ' + r.guide.link);
+    }
+  } catch (e) { bubble('b', e.message); }
+}
+
+// ---------------- guides
+let GUIDES = [], editing = null;
+async function loadGuides() {
+  if (!TOKEN) { $('glist').innerHTML = '<p class="muted">Enter your ADMIN_TOKEN first.</p>'; return; }
+  try { GUIDES = await api('/admin/guides'); } catch (e) { $('glist').textContent = e.message; return; }
+  $('glist').innerHTML = '';
+  if (!GUIDES.length) { $('glist').innerHTML = '<p class="muted">No guides yet. Click "+ New guide".</p>'; return; }
+  GUIDES.forEach(g => {
+    const row = document.createElement('div'); row.className = 'gitem';
+    const left = document.createElement('div');
+    const t = document.createElement('b'); t.textContent = g.title;
+    const s = document.createElement('div'); s.className = 'muted';
+    s.textContent = g.steps.length + ' step' + (g.steps.length === 1 ? '' : 's') + ' · ' +
+                    g.steps.filter(x => x.image).length + ' screenshot(s)';
+    left.append(t, s);
+    const btns = document.createElement('div'); btns.className = 'row';
+    const e = document.createElement('button'); e.className = 'ghost small'; e.textContent = 'Edit'; e.onclick = () => editGuide(g);
+    const d = document.createElement('button'); d.className = 'danger small'; d.textContent = 'Delete'; d.onclick = () => delGuide(g);
+    btns.append(e, d); row.append(left, btns); $('glist').appendChild(row);
+  });
+}
+function editGuide(g, draft) {
+  editing = g && !draft ? g.id : null;
+  $('edTitle').textContent = draft ? 'Review imported guide' : (g ? 'Edit guide' : 'New guide');
+  $('edNote').textContent = (draft && g.note) || ''; $('edNote').classList.toggle('hidden', !(draft && g.note));
+  $('gTitle').value = g ? g.title : ''; $('gKeys').value = g ? g.keywords : ''; $('gLink').value = g ? (g.link || '') : '';
+  $('steps').innerHTML = ''; $('gErr').textContent = '';
+  (g ? g.steps : [{text: ''}, {text: ''}]).forEach(s => addStep(s));
+  $('editor').classList.remove('hidden'); $('guideListPanel').classList.add('hidden');
+  $('gTitle').focus();
+}
+function closeEditor() { $('editor').classList.add('hidden'); $('guideListPanel').classList.remove('hidden'); }
+function renumber() { document.querySelectorAll('.step .num').forEach((n, i) => n.textContent = 'Step ' + (i + 1)); }
+function addStep(s) {
+  s = s || {text: ''};
+  const box = document.createElement('div'); box.className = 'step';
+  box.dataset.image = s.image || ''; box.dataset.imageData = s.image_data || '';
+  const head = document.createElement('div'); head.className = 'step-head';
+  const num = document.createElement('b'); num.className = 'num';
+  const rm = document.createElement('button'); rm.className = 'danger small'; rm.textContent = 'Remove step';
+  rm.onclick = () => { box.remove(); renumber(); };
+  head.append(num, rm);
+  const ta = document.createElement('textarea'); ta.placeholder = 'e.g. Go to My Account → Orders'; ta.value = s.text || '';
+  const fileRow = document.createElement('div'); fileRow.className = 'row'; fileRow.style.marginTop = '8px';
+  const file = document.createElement('input'); file.type = 'file'; file.accept = 'image/png,image/jpeg,image/webp,image/gif';
+  const clear = document.createElement('button'); clear.className = 'ghost small'; clear.textContent = 'Remove screenshot';
+  const img = document.createElement('img'); img.className = 'thumb'; img.alt = '';
+  const show = src => { img.src = src || ''; img.classList.toggle('hidden', !src); clear.classList.toggle('hidden', !src); };
+  show(s.image_data || (s.image ? '/guide-img/' + s.image : ''));
+  file.onchange = async () => {
+    const f = file.files[0]; if (!f) return;
+    const data = await shrink(f); box.dataset.imageData = data; box.dataset.image = ''; show(data);
+  };
+  clear.onclick = () => { box.dataset.image = ''; box.dataset.imageData = ''; file.value = ''; show(''); };
+  fileRow.append(file, clear);
+  box.append(head, ta, fileRow, img); $('steps').appendChild(box); renumber();
+}
+// import from Google Docs / PDF -> opens the editor with a draft
+async function runImport(btn, body) {
+  if (!TOKEN) { $('importMsg').textContent = 'Enter your ADMIN_TOKEN first.'; return; }
+  const label = btn.textContent; btn.disabled = true; btn.textContent = 'Importing…';
+  try {
+    const draft = await api('/admin/guides/import', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    editGuide(draft, true);
+  } catch (e) { $('importMsg').textContent = e.message; }
+  btn.disabled = false; btn.textContent = label;
+}
+function importGoogle() {
+  const url = $('gdocUrl').value.trim();
+  if (!url) { $('importMsg').textContent = 'Paste the Google Docs link first.'; return; }
+  runImport($('gdocBtn'), {google_url: url});
+}
+function importPdf() {
+  const f = $('pdfFile').files[0];
+  if (!f) { $('importMsg').textContent = 'Choose a PDF file first.'; return; }
+  const rd = new FileReader();
+  rd.onload = () => runImport($('pdfBtn'), {pdf_data: rd.result, filename: f.name});
+  rd.readAsDataURL(f);
+}
+
+// keep screenshots small: max 1400px wide
+function shrink(file) {
+  return new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onerror = reject;
+    rd.onload = () => {
+      const im = new Image();
+      im.onload = () => {
+        if (im.width <= 1400 && file.size < 1500000) return resolve(rd.result);
+        const scale = Math.min(1, 1400 / im.width);
+        const c = document.createElement('canvas'); c.width = Math.round(im.width * scale); c.height = Math.round(im.height * scale);
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      im.onerror = () => resolve(rd.result);
+      im.src = rd.result;
+    };
+    rd.readAsDataURL(file);
+  });
+}
+async function saveGuide() {
+  const steps = [...document.querySelectorAll('.step')].map(b => ({
+    text: b.querySelector('textarea').value,
+    image: b.dataset.image || null,
+    image_data: b.dataset.imageData || null,
+  }));
+  const body = {id: editing, title: $('gTitle').value, keywords: $('gKeys').value, link: $('gLink').value, steps};
+  $('saveBtn').disabled = true; $('gErr').textContent = '';
+  try {
+    await api('/admin/guides', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    closeEditor(); loadGuides();
+  } catch (e) { $('gErr').textContent = e.message; }
+  $('saveBtn').disabled = false;
+}
+async function delGuide(g) {
+  if (!window.confirm('Delete the guide "' + g.title + '"?')) return;
+  try { await api('/admin/guides/' + g.id, {method: 'DELETE'}); loadGuides(); } catch (e) { $('glist').textContent = e.message; }
+}
+
+// ---------------- website sync
+async function stats() { try { $('out').textContent = JSON.stringify(await api('/admin/stats'), null, 2); } catch (e) { $('out').textContent = e.message; } }
+async function sync(full) { try { $('out').textContent = JSON.stringify(await api('/admin/sync?full=' + full, {method: 'POST'}), null, 2); } catch (e) { $('out').textContent = e.message; } }
+</script>
+</body>
+</html>

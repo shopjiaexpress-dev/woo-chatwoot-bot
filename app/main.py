@@ -5,10 +5,11 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from . import chatwoot, config
-from .bot import Bot, cards_as_text
+from .bot import Bot, cards_as_text, storefront_links
+from .guides import Guides
 from .kb import KnowledgeBase
 from .woo import Woo
 
@@ -19,7 +20,8 @@ log = logging.getLogger("main")
 os.makedirs(config.DATA_DIR, exist_ok=True)
 kb = KnowledgeBase(config.DB_PATH)
 woo = Woo()
-bot = Bot(kb, woo)
+guides = Guides(config.DB_PATH, os.path.join(config.DATA_DIR, "guides"))
+bot = Bot(kb, woo, guides)
 
 
 async def _scheduler():
@@ -66,7 +68,7 @@ async def _process(event):
             return
         sender = event.get("sender") or {}
         key = "%s:%s" % (account_id, conv_id)
-        reply, handoff, cards = await bot.answer(key, event.get("content") or "", sender.get("email"))
+        reply, handoff, cards, guide = await bot.answer(key, event.get("content") or "", sender.get("email"))
         channel = conv.get("channel") or ""
         if cards and channel and channel != "Channel::WebWidget":
             reply = (reply + "\n\n" + cards_as_text(cards)).strip()  # e.g. WhatsApp: no cards there
@@ -77,10 +79,33 @@ async def _process(event):
             r = await chatwoot.send_cards(account_id, conv_id, cards)
             if r.status_code >= 400:  # older Chatwoot without cards -> plain text
                 await chatwoot.send_message(account_id, conv_id, cards_as_text(cards))
+        if guide:
+            await _send_guide(account_id, conv_id, guide)
         if handoff:
             await chatwoot.handoff(account_id, conv_id)
     except Exception:
         log.exception("failed to process webhook")
+
+
+def _step_text(i, step, total):
+    text = storefront_links(step.get("text") or "")
+    return ("**Step %d.** %s" % (i, text)).strip() if total > 1 else text
+
+
+async def _send_guide(account_id, conv_id, guide):
+    """One message per step, each with its screenshot, in order."""
+    steps = guide["steps"]
+    for i, st in enumerate(steps, 1):
+        text = _step_text(i, st, len(steps))
+        path = guides.image_path(st.get("image"))
+        if path and os.path.exists(path):
+            r = await chatwoot.send_attachment(account_id, conv_id, text, path)
+            if r.status_code < 400:
+                continue
+        if text:
+            await chatwoot.send_message(account_id, conv_id, text)
+    if guide.get("link"):
+        await chatwoot.send_message(account_id, conv_id, "\U0001F449 [%s](%s)" % (guide["title"], storefront_links(guide["link"])))
 
 
 @app.post("/webhook")
@@ -123,9 +148,66 @@ async def admin_ask(request: Request, token: str = ""):
     """Test the bot without Chatwoot: {"message": "...", "session": "test1", "email": "optional"}"""
     _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
     body = await request.json()
-    reply, handoff, cards = await bot.answer("test:" + body.get("session", "default"), body.get("message", ""),
-                                             body.get("email"))
-    return {"reply": reply, "handoff": handoff, "cards": cards}
+    reply, handoff, cards, guide = await bot.answer("test:" + body.get("session", "default"), body.get("message", ""),
+                                                    body.get("email"))
+    g = None
+    if guide:
+        g = {"title": guide["title"], "link": storefront_links(guide.get("link") or ""),
+             "steps": [{"text": _step_text(i, st, len(guide["steps"])),
+                        "image_url": "/guide-img/" + st["image"] if st.get("image") else ""}
+                       for i, st in enumerate(guide["steps"], 1)]}
+    return {"reply": reply, "handoff": handoff, "cards": cards, "guide": g}
+
+
+# ------------------------------------------------------------------ guides
+@app.get("/admin/guides")
+async def guides_list(token: str = ""):
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    return guides.all()
+
+
+@app.post("/admin/guides")
+async def guides_save(request: Request, token: str = ""):
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    try:
+        gid = await asyncio.to_thread(guides.save, await request.json())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return guides.get(gid)
+
+
+@app.post("/admin/guides/import")
+async def guides_import(request: Request, token: str = ""):
+    """Make a draft guide from {"google_url": ...} or {"pdf_data": "data:application/pdf;base64,...", "filename": ...}.
+    The draft is shown in the editor for review; it is not saved here."""
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    from . import importer
+    body = await request.json()
+    try:
+        if body.get("google_url"):
+            return await importer.from_google_doc(body["google_url"])
+        if body.get("pdf_data"):
+            return await asyncio.to_thread(importer.from_pdf, body["pdf_data"], body.get("filename") or "")
+    except importer.ImportError_ as e:
+        raise HTTPException(400, str(e))
+    except Exception:
+        log.exception("guide import failed")
+        raise HTTPException(400, "Sorry, that document couldn't be imported.")
+    raise HTTPException(400, "Paste a Google Docs link or choose a PDF file.")
+
+
+@app.delete("/admin/guides/{gid}")
+async def guides_delete(gid: int, token: str = ""):
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    return {"deleted": guides.delete(gid)}
+
+
+@app.get("/guide-img/{name}")
+async def guide_image(name: str):
+    path = guides.image_path(name)
+    if not path or not os.path.exists(path):
+        raise HTTPException(404)
+    return FileResponse(path)
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -133,39 +215,5 @@ async def admin_page():
     return ADMIN_HTML
 
 
-ADMIN_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bot admin</title><style>
-body{font-family:system-ui,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;color:#222}
-input,button,textarea{font:inherit;padding:8px;border:1px solid #bbb;border-radius:6px}
-button{background:#1f6feb;color:#fff;border:0;cursor:pointer} .row{display:flex;gap:8px;margin:8px 0}
-.row input{flex:1} pre{background:#f4f4f4;padding:12px;border-radius:6px;white-space:pre-wrap}
-.msg{padding:8px 12px;border-radius:8px;margin:6px 0} .u{background:#e8f0fe} .b{background:#f1f1f1}
-.cards{display:flex;gap:10px;overflow-x:auto;padding:4px 0 8px} .card{flex:0 0 190px;border:1px solid #ddd;border-radius:10px;overflow:hidden;background:#fff}
-.card img{width:100%;height:150px;object-fit:cover;background:#f4f4f4;display:block} .card div{padding:8px 10px}
-.card b{display:block;font-size:14px;line-height:1.3} .card small{color:#555;display:block;margin:4px 0 8px}
-.card a{display:block;text-align:center;padding:7px;border-radius:6px;background:#1f6feb;color:#fff;text-decoration:none;font-size:13px}
-</style></head><body>
-<h2>WooCommerce Chatwoot Bot — admin</h2>
-<div class="row"><input id="t" type="password" placeholder="ADMIN_TOKEN"></div>
-<div class="row"><button onclick="sync(false)">Sync sitemap (changed pages)</button>
-<button onclick="sync(true)">Full re-sync</button><button onclick="stats()">Stats</button></div>
-<pre id="out">Enter your ADMIN_TOKEN, then click Stats.</pre>
-<h3>Test chat</h3><div id="chat"></div>
-<div class="row"><input id="m" placeholder="Ask something a customer would ask…" onkeydown="if(event.key==='Enter')ask()">
-<button onclick="ask()">Send</button></div>
-<script>
-const T=()=>encodeURIComponent(document.getElementById('t').value), out=document.getElementById('out');
-async function stats(){out.textContent=JSON.stringify(await (await fetch('/admin/stats?token='+T())).json(),null,2)}
-async function sync(f){out.textContent=JSON.stringify(await (await fetch('/admin/sync?full='+f+'&token='+T(),{method:'POST'})).json(),null,2)}
-function add(c,t){const d=document.createElement('div');d.className='msg '+c;d.textContent=t;document.getElementById('chat').appendChild(d)}
-async function ask(){const m=document.getElementById('m');const v=m.value.trim();if(!v)return;m.value='';add('u',v);
-const r=await (await fetch('/admin/ask?token='+T(),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:v,session:'admin'})})).json();
-add('b',(r.reply||r.detail||'(no reply)')+(r.handoff?'  → [handed to human]':''));
-if(r.cards&&r.cards.length){const w=document.createElement('div');w.className='cards';
-for(const c of r.cards){const d=document.createElement('div');d.className='card';
-if(c.media_url){const i=document.createElement('img');i.src=c.media_url;i.alt='';d.appendChild(i)}
-const b=document.createElement('div');const t=document.createElement('b');t.textContent=c.title;
-const s=document.createElement('small');s.textContent=c.description;const a=document.createElement('a');
-a.href=c.actions[0].uri;a.target='_blank';a.textContent=c.actions[0].text;b.append(t,s,a);d.appendChild(b);w.appendChild(d)}
-document.getElementById('chat').appendChild(w)}}
-</script></body></html>"""
+with open(os.path.join(os.path.dirname(__file__), "admin.html"), encoding="utf-8") as _f:
+    ADMIN_HTML = _f.read()

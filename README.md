@@ -89,6 +89,22 @@ docker compose up -d --build
 
 Your `.env` and `data/` folder are never touched by `git pull`, because they're listed in `.gitignore`.
 
+## Teaching the bot: step-by-step guides with screenshots
+
+Use guides for things like "How to cancel an order" or "How to check order status".
+
+1. Open `/admin` on the bot's address, enter your `ADMIN_TOKEN`, and go to the **Guides** tab.
+2. Create a guide in one of three ways:
+   - **+ New guide:** type each step and attach a screenshot.
+   - **Import Google Doc:** paste the link. The doc must be shared as **"Anyone with the link"**.
+   - **Import PDF:** choose the file.
+
+   When you import, each paragraph becomes a step, and each picture becomes that step's screenshot. A page with no text, such as a scanned page, becomes a screenshot by itself.
+3. Fill in **Customers might ask…** with words and phrases like `cancel order, cancel my order, stop my order`. Optionally add a link to show at the end. Then click **Save guide**.
+4. Test it in the **Test chat** tab.
+
+When a customer asks, the bot replies with one short sentence. It then sends each step as its own message with its screenshot, and finishes with the link if you added one. Screenshots are stored in the bot's `/data` volume, so they survive restarts and updates.
+
 ## Common questions
 
 **Which sitemap URL do I use?**

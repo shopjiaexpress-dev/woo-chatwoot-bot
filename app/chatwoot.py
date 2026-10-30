@@ -32,3 +32,19 @@ async def send_cards(account_id, conversation_id, items):
     return await _post("/%s/conversations/%s/messages" % (account_id, conversation_id),
                        {"content": "Products", "message_type": "outgoing", "private": False,
                         "content_type": "cards", "content_attributes": {"items": items}})
+
+
+async def send_attachment(account_id, conversation_id, content, file_path):
+    """Message with an image (e.g. a guide screenshot) uploaded to Chatwoot."""
+    import mimetypes
+    import os
+    url = "%s/api/v1/accounts/%s/conversations/%s/messages" % (config.CHATWOOT_URL, account_id, conversation_id)
+    mime = mimetypes.guess_type(file_path)[0] or "image/png"
+    async with httpx.AsyncClient(timeout=60) as c:
+        with open(file_path, "rb") as f:
+            r = await c.post(url, headers={"api_access_token": config.CHATWOOT_BOT_TOKEN},
+                             data={"content": content, "message_type": "outgoing", "private": "false"},
+                             files={"attachments[]": (os.path.basename(file_path), f, mime)})
+    if r.status_code >= 400:
+        log.warning("attachment upload -> %s %s", r.status_code, r.text[:200])
+    return r

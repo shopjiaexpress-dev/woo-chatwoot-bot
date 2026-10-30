@@ -69,6 +69,8 @@ class Woo:
             "name": unescape(p.get("name", "")),
             "slug": p.get("slug", ""),
             "price": price,
+            "card_price": self.money(p.get("price")),  # current (sale) price only, for product cards
+            "in_stock": status != "outofstock",
             "stock": stock,
             "image": images[0].get("src", "") if images else "",
             "url": (config.PRODUCT_LINK_TEMPLATE.format(site=config.SITE_URL, slug=p["slug"])

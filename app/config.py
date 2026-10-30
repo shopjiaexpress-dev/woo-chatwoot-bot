@@ -43,7 +43,8 @@ WOO_URL = (_get("WOO_URL") or SITE_URL).rstrip("/")
 WOO_KEY = _get("WOO_CONSUMER_KEY")
 WOO_SECRET = _get("WOO_CONSUMER_SECRET")
 CURRENCY_SYMBOL = _get("CURRENCY_SYMBOL", "")         # empty = read from WooCommerce
-MAX_PRODUCT_CARDS = _int("MAX_PRODUCT_CARDS", 4)
+MAX_PRODUCT_CARDS = _int("MAX_PRODUCT_CARDS", 10)
+SHOW_PRODUCT_IMAGES = _bool("SHOW_PRODUCT_IMAGES", False)  # true = show product photos on cards
 
 # --- Chatwoot --------------------------------------------------------------
 CHATWOOT_URL = _get("CHATWOOT_URL").rstrip("/")         # https://chat.yourshop.com

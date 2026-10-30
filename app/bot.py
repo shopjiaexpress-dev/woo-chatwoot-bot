@@ -7,6 +7,7 @@ from collections import defaultdict, deque
 from urllib.parse import urlparse
 
 from . import config, llm
+from .kb import _tokens
 
 log = logging.getLogger("bot")
 
@@ -24,6 +25,8 @@ HANDOFF_RE = re.compile(
     r"speak (to|with) (someone|a person|an agent|support)|customer (care|service)|representative|connect me)\b",
     re.I)
 HANDOFF_MARK = "[HANDOFF]"
+HOW_TO_RE = re.compile(r"\b(how|steps?|way to|guide|process|procedure|can i|cancel|cancell?ation|return|exchange|refund)\b", re.I)
+GUIDE_LINE_RE = re.compile(r"^[ \t*_]*GUIDE[ \t*_]*:\s*#?(\d+).*$", re.I | re.M)
 PRODUCTS_LINE_RE = re.compile(r"^[ \t*_]*PRODUCTS?[ \t*_]*:(.*)$", re.I | re.M)
 
 
@@ -68,10 +71,28 @@ def format_order(info):
     return "\n".join(lines)
 
 
+GENERIC_WORDS = set("""product products item items buy buying price prices cost show see list available stock sell
+sale cheap best good new all something anything thing things looking find search want need some more other""".split())
+
+
+def product_keywords(text, n=2):
+    """Main words of a shopping question, e.g. 'show me baby products' -> ['baby']."""
+    words = []
+    for w in _tokens(text):
+        if w in GENERIC_WORDS or w.isdigit():
+            continue
+        if len(w) > 4 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]  # bottles -> bottle (WooCommerce search is literal)
+        if w not in words:
+            words.append(w)
+    return sorted(words, key=len, reverse=True)[:n]
+
+
 class Bot:
-    def __init__(self, kb, woo):
+    def __init__(self, kb, woo, guides=None):
         self.kb = kb
         self.woo = woo
+        self.guides = guides
         self.history = defaultdict(lambda: deque(maxlen=config.HISTORY_TURNS * 2))
         self.order_state = {}  # conv_key -> {"order":..., "email":..., "ts":...}
 
@@ -163,14 +184,20 @@ Rules:
   in your text - they are shown to the customer automatically as product cards with image, price and a button.
   Just write a short sentence (e.g. "Here are some glass water bottles you might like:"), then add a LAST line
   exactly like:  PRODUCTS: slug-one, slug-two
-  using up to {config.MAX_PRODUCT_CARDS} slugs copied exactly from the CONTEXT (best match first).
+  using as many matching slugs as fit (up to {config.MAX_PRODUCT_CARDS}), copied exactly from the CONTEXT, best match first.
+  When the customer asks to see products or a category, show plenty of options, not just one or two.
   If the customer asks about one product's details, answer briefly in text and still add its PRODUCTS line.
 - For non-product pages (policies, contact, about), you may use one short markdown link like [Shipping policy](url).
 - Never invent prices, stock, policies, delivery times, discounts or contact details. Live store data overrides website text.
 - If the context does not contain the answer, say you're not sure and offer to connect them with our team.
 - For order tracking, ask for their order number and email (our system will look it up).
-- If the customer is angry, wants a refund/return/cancellation processed, or asks for a human, or you cannot help,
-  reply briefly and end your message with {HANDOFF_MARK}
+- GUIDES: if a [GUIDE] in the CONTEXT explains how to do what the customer asks (cancel an order, check order
+  status, return an item, etc.), do NOT write the steps yourself - they are sent automatically with screenshots.
+  Write ONE short friendly sentence (e.g. "Here's how you can cancel your order:"), then add a LAST line exactly like:
+  GUIDE: <id>
+  Prefer a matching guide over handing the chat to a human.
+- If the customer is angry, wants a refund/return/cancellation processed and no GUIDE covers it, asks for a human,
+  or you cannot help, reply briefly and end your message with {HANDOFF_MARK}
 - {config.BOT_LANGUAGE_HINT}
 {config.EXTRA_INSTRUCTIONS}
 
@@ -180,29 +207,38 @@ CONTEXT:
 
     @staticmethod
     def _card(p):
-        desc = " \u00b7 ".join(x for x in (p.get("price"), p.get("stock")) if x)
+        # Title + current price only. "Out of stock" is added only when it can't be bought.
+        desc = p.get("card_price") or p.get("price") or ""
+        if not p.get("in_stock", True):
+            desc = (desc + " \u00b7 Out of stock").strip(" \u00b7")
         card = {"title": p["name"][:80], "description": desc,
-                "actions": [{"type": "link", "text": "View product", "uri": p["url"]}]}
-        if p.get("image"):
+                "actions": [{"type": "link", "text": "View product \u2192", "uri": p["url"]}]}
+        if config.SHOW_PRODUCT_IMAGES and p.get("image"):
             card["media_url"] = p["image"]
         return card
 
     # ---------------------------------------------------------------- main
     async def answer(self, key, text, contact_email=None):
-        """Returns (reply_text, handoff: bool, product_cards: list)."""
+        """Returns (reply_text, handoff: bool, product_cards: list, guide: dict | None)."""
         text = (text or "").strip()
         if not text:
-            return None, False, []
+            return None, False, [], None
 
         if HANDOFF_RE.search(text):
             self._remember(key, "user", text)
-            return config.HANDOFF_MESSAGE, True, []
+            return config.HANDOFF_MESSAGE, True, [], None
 
-        order_reply = await self._order_flow(key, text, contact_email)
+        # "How do I cancel my order?" -> send the guide, not the order lookup
+        how_to = HOW_TO_RE.search(text) and not ORDER_NUM_RE.search(EMAIL_RE.sub(" ", text))
+        if how_to and self.guides and self.guides.strong_match(text):
+            self.order_state.pop(key, None)
+            order_reply = None
+        else:
+            order_reply = await self._order_flow(key, text, contact_email)
         if order_reply:
             self._remember(key, "user", text)
             self._remember(key, "assistant", order_reply)
-            return order_reply, False, []
+            return order_reply, False, [], None
 
         # Short follow-ups ("and in blue?") need the previous question for search
         query = text
@@ -210,11 +246,21 @@ CONTEXT:
         if len(text.split()) < 6 and prev_user:
             query = prev_user[-1] + " " + text
 
-        hits = await asyncio.to_thread(self.kb.search, query, 8)
-        slugs = self._product_slugs(hits)[:6]
+        hits = await asyncio.to_thread(self.kb.search, query, 14)
+        slugs = self._product_slugs(hits)[:12]
         live = await self._live_products(slugs)
+        # Also ask WooCommerce directly, so we can show more matching products than the website search found
+        found = await asyncio.gather(*(self.woo.search_products(k, limit=12) for k in product_keywords(text)))
+        for p in [p for group in found for p in group]:
+            if p.get("slug") and p["slug"] not in live and len(live) < 16:
+                live[p["slug"]] = p
+                slugs.append(p["slug"])
 
+        guide_hits = await asyncio.to_thread(self.guides.search, query, 2) if self.guides else []
         parts = []
+        for g in guide_hits:
+            parts.append("[GUIDE id=%s] %s\nSteps: %s" % (
+                g["id"], g["title"], " | ".join("%d. %s" % (i + 1, st["text"]) for i, st in enumerate(g["steps"]))))
         for slug, p in live.items():
             parts.append("[PRODUCT slug=%s] %s | price: %s | stock: %s\n%s"
                          % (slug, p["name"], p["price"], p["stock"], p["summary"]))
@@ -232,11 +278,19 @@ CONTEXT:
         messages = list(self.history[key]) + [{"role": "user", "content": text}]
         reply, provider = await llm.chat(self._system_prompt(context), messages)
 
-        handoff, chosen = False, []
+        handoff, chosen, guide = False, [], None
         if reply:
+            g = GUIDE_LINE_RE.search(reply)
+            if g:
+                reply = GUIDE_LINE_RE.sub("", reply).strip()
+                guide = next((x for x in guide_hits if str(x["id"]) == g.group(1)), None)
             if HANDOFF_MARK in reply:
-                handoff = True
-                reply = reply.replace(HANDOFF_MARK, "").strip() or config.HANDOFF_MESSAGE
+                reply = reply.replace(HANDOFF_MARK, "").strip()
+                if guide:
+                    reply = reply or "Here's how:"
+                else:
+                    handoff = True
+                    reply = reply or config.HANDOFF_MESSAGE
             m = PRODUCTS_LINE_RE.search(reply)
             if m:
                 reply = PRODUCTS_LINE_RE.sub("", reply).strip()
@@ -247,12 +301,15 @@ CONTEXT:
             log.info("answered via %s", provider)
         else:
             # All AI providers unavailable -> search-only answer
-            chosen = slugs[:config.MAX_PRODUCT_CARDS]
+            guide = self.guides.strong_match(query) if self.guides else None
+            chosen = [] if guide else slugs[:config.MAX_PRODUCT_CARDS]
             pages = []
             for h in hits:
                 if h["url"] not in product_urls and h["url"] not in [u for _, u in pages]:
                     pages.append((h["title"], h["url"]))
-            if chosen and live:
+            if guide:
+                reply = "Here's how:"
+            elif chosen and live:
                 reply = "Here are some products that match what you're looking for:"
             elif pages:
                 reply = ("Here's what I found on our website that may help:\n" +
@@ -262,12 +319,15 @@ CONTEXT:
             if not handoff:
                 reply += "\n\nType \"agent\" if you'd like to talk to our team."
 
-        cards = [self._card(live[s]) for s in chosen[:config.MAX_PRODUCT_CARDS] if s in live]
+        chosen = sorted([s for s in chosen if s in live], key=lambda s: not live[s].get("in_stock", True))
+        cards = [self._card(live[s]) for s in chosen[:config.MAX_PRODUCT_CARDS]]
         reply = storefront_links(reply) or ("Here you go:" if cards else config.HANDOFF_MESSAGE)
         self._remember(key, "user", text)
         memo = reply + ("\n(Showed products: %s)" % ", ".join(c["title"] for c in cards) if cards else "")
+        if guide:
+            memo += "\n(Sent the step-by-step guide: %s)" % guide["title"]
         self._remember(key, "assistant", memo)
-        return reply, handoff, cards
+        return reply, handoff, cards, guide
 
 
 def cards_as_text(cards):
