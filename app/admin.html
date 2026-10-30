@@ -46,6 +46,11 @@
   .step-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
   .thumb{display:block;max-width:220px;max-height:160px;border-radius:8px;border:1px solid var(--line);margin-top:8px}
   .error{color:var(--danger);font-size:14px;margin-top:8px}
+  .presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}
+  .chip{padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--text);font-size:13px}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .gitem a{color:var(--accent);word-break:break-all;font-size:13px}
+  .warn{color:var(--danger);font-size:13px}
   .import{background:var(--soft);border-radius:10px;padding:12px;margin:0 0 14px}
   .note{background:var(--soft);border-radius:8px;padding:8px 10px;font-size:14px;margin-bottom:6px}
 </style>
@@ -63,6 +68,7 @@
 
   <div class="tabs">
     <button data-tab="chat" class="on">Test chat</button>
+    <button data-tab="pages">Key pages</button>
     <button data-tab="guides">Guides</button>
     <button data-tab="site">Website sync</button>
   </div>
@@ -75,6 +81,35 @@
     <div class="row">
       <input id="m" type="text" placeholder="e.g. How do I cancel my order?" onkeydown="if(event.key==='Enter')ask()">
       <button onclick="ask()">Send</button>
+    </div>
+  </section>
+
+  <!-- KEY PAGES -->
+  <section id="tab-pages" class="hidden">
+    <div class="panel">
+      <h2>Key pages</h2>
+      <p class="muted">Link a topic to one of your pages. When a customer asks about that topic, the bot reads the page
+        and answers from it, then adds the link. Pages are re-read every day.</p>
+      <div class="presets" id="presets"></div>
+      <label for="pTopic">Topic</label>
+      <input id="pTopic" type="text" placeholder="Refunds">
+      <label for="pUrl">Page address</label>
+      <input id="pUrl" type="url" placeholder="{{SITE_URL}}/refund-policy">
+      <label for="pKeys">Customers might ask… <span class="muted">(words and phrases, comma separated)</span></label>
+      <textarea id="pKeys" placeholder="refund, return, money back, replacement, damaged item"></textarea>
+      <div class="error" id="pErr"></div>
+      <div class="row" style="margin-top:12px">
+        <button onclick="savePage()" id="pSave">Save page</button>
+        <button class="ghost hidden" onclick="resetPage()" id="pCancel">Cancel edit</button>
+      </div>
+      <div class="note hidden" id="pPreview" style="margin-top:12px"></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">Your key pages</h2>
+        <button class="ghost small" onclick="refreshPages()" id="pRefresh">Re-read all now</button>
+      </div>
+      <div class="glist" id="plist" style="margin-top:10px"></div>
     </div>
   </section>
 
@@ -110,7 +145,7 @@
       <label for="gKeys">Customers might ask… <span class="muted">(words and phrases, comma separated)</span></label>
       <textarea id="gKeys" placeholder="cancel order, cancel my order, stop order, order cancellation"></textarea>
       <label for="gLink">Link at the end <span class="muted">(optional)</span></label>
-      <input id="gLink" type="url" placeholder="https://jiaexpress.com/my-account/orders">
+      <input id="gLink" type="url" placeholder="{{SITE_URL}}/my-account/orders">
       <label>Steps</label>
       <div id="steps"></div>
       <button class="ghost" onclick="addStep()">+ Add step</button>
@@ -159,8 +194,9 @@ async function api(path, opts) {
 // tabs
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['chat', 'guides', 'site'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+  ['chat', 'pages', 'guides', 'site'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
   if (b.dataset.tab === 'guides') loadGuides();
+  if (b.dataset.tab === 'pages') loadPages();
 });
 
 // ---------------- test chat
@@ -194,6 +230,66 @@ async function ask() {
       if (r.guide.link) bubble('b', '👉 ' + r.guide.link);
     }
   } catch (e) { bubble('b', e.message); }
+}
+
+// ---------------- key pages
+const SITE = '{{SITE_URL}}' || location.origin;
+const PRESETS = [
+  ['Refunds', 'refund-policy', 'refund, return, money back, replacement, exchange, damaged item, wrong item'],
+  ['Shipping', 'shipping-policy', 'shipping, delivery, deliver, courier, dispatch, how long, delivery charges, cod'],
+  ['Contact', 'contact', 'contact, phone, call, email, whatsapp, address, customer care, support number'],
+  ['About us', 'about-us', 'about, who are you, company, brand, store, owner'],
+  ['Privacy', 'privacy-policy', 'privacy, personal data, my data, information'],
+  ['Terms', 'terms-and-conditions', 'terms, conditions, rules, policy'],
+];
+let editingPage = null;
+PRESETS.forEach(([topic, path, keys]) => {
+  const c = document.createElement('button'); c.className = 'chip'; c.textContent = '+ ' + topic;
+  c.onclick = () => { resetPage(); $('pTopic').value = topic; $('pKeys').value = keys;
+                      $('pUrl').value = SITE + '/' + path; $('pUrl').focus(); $('pUrl').select(); };
+  $('presets').appendChild(c);
+});
+function resetPage() {
+  editingPage = null; $('pTopic').value = ''; $('pUrl').value = ''; $('pKeys').value = '';
+  $('pErr').textContent = ''; $('pCancel').classList.add('hidden'); $('pSave').textContent = 'Save page';
+}
+async function loadPages() {
+  if (!TOKEN) { $('plist').innerHTML = '<p class="muted">Enter your ADMIN_TOKEN first.</p>'; return; }
+  let pages; try { pages = await api('/admin/pages'); } catch (e) { $('plist').textContent = e.message; return; }
+  $('plist').innerHTML = '';
+  if (!pages.length) { $('plist').innerHTML = '<p class="muted">No key pages yet. Use the buttons above to add Refunds, Shipping, Contact…</p>'; return; }
+  pages.forEach(p => {
+    const row = document.createElement('div'); row.className = 'gitem';
+    const left = document.createElement('div');
+    const t = document.createElement('b'); t.textContent = p.topic;
+    const a = document.createElement('a'); a.href = p.url; a.target = '_blank'; a.textContent = p.url;
+    const m = document.createElement('div'); m.className = p.error ? 'warn' : 'muted';
+    m.textContent = p.error ? 'Last refresh failed: ' + p.error : (p.chars + ' characters read · asks: ' + (p.keywords || '—'));
+    left.append(t, document.createElement('br'), a, m);
+    const btns = document.createElement('div'); btns.className = 'row';
+    const e = document.createElement('button'); e.className = 'ghost small'; e.textContent = 'Edit';
+    e.onclick = () => { editingPage = p.id; $('pTopic').value = p.topic; $('pUrl').value = p.url; $('pKeys').value = p.keywords;
+                        $('pCancel').classList.remove('hidden'); $('pSave').textContent = 'Update page'; window.scrollTo(0, 0); };
+    const d = document.createElement('button'); d.className = 'danger small'; d.textContent = 'Delete';
+    d.onclick = async () => { if (!window.confirm('Remove "' + p.topic + '"?')) return;
+                              await api('/admin/pages/' + p.id, {method: 'DELETE'}); loadPages(); };
+    btns.append(e, d); row.append(left, btns); $('plist').appendChild(row);
+  });
+}
+async function savePage() {
+  $('pErr').textContent = ''; $('pSave').disabled = true; const label = $('pSave').textContent; $('pSave').textContent = 'Reading page…';
+  try {
+    const p = await api('/admin/pages', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: editingPage, topic: $('pTopic').value, url: $('pUrl').value, keywords: $('pKeys').value})});
+    $('pPreview').textContent = '✓ Saved "' + p.topic + '". The bot read ' + p.chars + ' characters, starting with: “' + p.preview.slice(0, 220) + '…”';
+    $('pPreview').classList.remove('hidden'); resetPage(); loadPages();
+  } catch (e) { $('pErr').textContent = e.message; }
+  $('pSave').disabled = false; if ($('pSave').textContent === 'Reading page…') $('pSave').textContent = label;
+}
+async function refreshPages() {
+  $('pRefresh').disabled = true; $('pRefresh').textContent = 'Reading…';
+  try { await api('/admin/pages/refresh', {method: 'POST'}); await loadPages(); } catch (e) { $('plist').textContent = e.message; }
+  $('pRefresh').disabled = false; $('pRefresh').textContent = 'Re-read all now';
 }
 
 // ---------------- guides

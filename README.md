@@ -89,6 +89,16 @@ docker compose up -d --build
 
 Your `.env` and `data/` folder are never touched by `git pull`, because they're listed in `.gitignore`.
 
+## Key pages: refund, shipping, contact and other policies
+
+Link a topic to one of your pages, and the bot answers questions on that topic from the page itself.
+
+1. Open `/admin`, go to the **Key pages** tab, and click a quick button: **+ Refunds**, **+ Shipping**, **+ Contact**, **+ About us**, **+ Privacy** or **+ Terms**.
+2. Check the page address, for example `https://jiaexpress.com/refund-policy`, and the phrases customers might use. Then click **Save page**. The bot reads the page straight away and shows you the start of what it read.
+3. Try it in **Test chat**, for example: "Can I get my money back?"
+
+The bot answers from that page using its exact numbers, such as days, fees, phone numbers and emails, and ends with the page link. Pages are re-read during every daily sync. You can also re-read them yourself with **Re-read all now**, which is useful after editing a policy.
+
 ## Teaching the bot: step-by-step guides with screenshots
 
 Use guides for things like "How to cancel an order" or "How to check order status".

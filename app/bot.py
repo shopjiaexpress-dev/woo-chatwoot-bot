@@ -95,10 +95,11 @@ def _agent_hint(reply):
 
 
 class Bot:
-    def __init__(self, kb, woo, guides=None):
+    def __init__(self, kb, woo, guides=None, pages=None):
         self.kb = kb
         self.woo = woo
         self.guides = guides
+        self.pages = pages
         self.history = defaultdict(lambda: deque(maxlen=config.HISTORY_TURNS * 2))
         self.order_state = {}  # conv_key -> {"order":..., "email":..., "ts":...}
 
@@ -193,7 +194,10 @@ Rules:
   using as many matching slugs as fit (up to {config.MAX_PRODUCT_CARDS}), copied exactly from the CONTEXT, best match first.
   When the customer asks to see products or a category, show plenty of options, not just one or two.
   If the customer asks about one product's details, answer briefly in text and still add its PRODUCTS line.
-- For non-product pages (policies, contact, about), you may use one short markdown link like [Shipping policy](url).
+- OFFICIAL PAGES: an [OFFICIAL PAGE] in the CONTEXT is the store's own policy/info page for that topic. Answer from it
+  first and precisely (keep exact numbers: days, fees, conditions, phone, email), in 2-4 short sentences or a few
+  bullets, then end with its link like: [Refund policy](url). If it doesn't cover the question, say so.
+- For other non-product pages, you may use one short markdown link like [Shipping policy](url).
 - Never invent prices, stock, policies, delivery times, discounts or contact details. Live store data overrides website text.
 - If the context does not contain the answer, say so briefly and tell them they can type "agent" to chat with our team.
   Do NOT say you are connecting them - only the customer decides that.
@@ -264,7 +268,12 @@ CONTEXT:
                 slugs.append(p["slug"])
 
         guide_hits = await asyncio.to_thread(self.guides.search, query, 2) if self.guides else []
+        key_pages = await asyncio.to_thread(self.pages.match, text) if self.pages else []
+        if not key_pages and query != text and self.pages:
+            key_pages = await asyncio.to_thread(self.pages.match, query, 1)
         parts = []
+        for kp in key_pages:
+            parts.append("[OFFICIAL PAGE] Topic: %s | %s\n%s" % (kp["topic"], storefront_links(kp["url"]), kp["text"]))
         for g in guide_hits:
             parts.append("[GUIDE id=%s] %s\nSteps: %s" % (
                 g["id"], g["title"], " | ".join("%d. %s" % (i + 1, st["text"]) for i, st in enumerate(g["steps"]))))
@@ -320,6 +329,10 @@ CONTEXT:
                     pages.append((h["title"], h["url"]))
             if guide:
                 reply = "Here's how:"
+            elif key_pages:
+                chosen = []
+                reply = "You'll find all the details here: " + ", ".join(
+                    "[%s](%s)" % (kp["topic"], storefront_links(kp["url"])) for kp in key_pages)
             elif chosen and live:
                 reply = "Here are some products that match what you're looking for:"
             elif pages:

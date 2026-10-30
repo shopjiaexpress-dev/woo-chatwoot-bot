@@ -4,6 +4,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
@@ -11,6 +12,7 @@ from . import chatwoot, config
 from .bot import Bot, cards_as_text, storefront_links
 from .guides import Guides
 from .kb import KnowledgeBase
+from .pages import KeyPages
 from .woo import Woo
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -21,7 +23,8 @@ os.makedirs(config.DATA_DIR, exist_ok=True)
 kb = KnowledgeBase(config.DB_PATH)
 woo = Woo()
 guides = Guides(config.DB_PATH, os.path.join(config.DATA_DIR, "guides"))
-bot = Bot(kb, woo, guides)
+keypages = KeyPages(config.DB_PATH)
+bot = Bot(kb, woo, guides, keypages)
 
 
 async def _scheduler():
@@ -32,6 +35,7 @@ async def _scheduler():
         await asyncio.sleep(config.SYNC_INTERVAL_HOURS * 3600)
         try:
             await kb.sync()
+            await keypages.refresh_all()
         except Exception:
             log.exception("scheduled sync failed")
 
@@ -127,7 +131,10 @@ async def webhook(request: Request, background: BackgroundTasks, token: str = ""
 @app.post("/admin/sync")
 async def admin_sync(background: BackgroundTasks, token: str = "", full: bool = False):
     _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
-    background.add_task(kb.sync, full)
+    async def run():
+        await kb.sync(full)
+        await keypages.refresh_all()
+    background.add_task(run)
     return {"started": True, "hint": "watch progress at /admin/stats"}
 
 
@@ -196,6 +203,40 @@ async def guides_import(request: Request, token: str = ""):
     raise HTTPException(400, "Paste a Google Docs link or choose a PDF file.")
 
 
+# ------------------------------------------------------------------ key pages
+@app.get("/admin/pages")
+async def pages_list(token: str = ""):
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    return keypages.all()
+
+
+@app.post("/admin/pages")
+async def pages_save(request: Request, token: str = ""):
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    try:
+        pid = await keypages.save(await request.json())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPError:
+        raise HTTPException(400, "Couldn't reach that page. Check the address and try again.")
+    p = keypages.get(pid)
+    p["preview"] = p.pop("text")[:400]
+    return p
+
+
+@app.post("/admin/pages/refresh")
+async def pages_refresh(token: str = ""):
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    await keypages.refresh_all()
+    return keypages.all()
+
+
+@app.delete("/admin/pages/{pid}")
+async def pages_delete(pid: int, token: str = ""):
+    _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
+    return {"deleted": keypages.delete(pid)}
+
+
 @app.delete("/admin/guides/{gid}")
 async def guides_delete(gid: int, token: str = ""):
     _check(token, config.ADMIN_TOKEN, "ADMIN_TOKEN")
@@ -216,4 +257,4 @@ async def admin_page():
 
 
 with open(os.path.join(os.path.dirname(__file__), "admin.html"), encoding="utf-8") as _f:
-    ADMIN_HTML = _f.read()
+    ADMIN_HTML = _f.read().replace("{{SITE_URL}}", config.SITE_URL.replace("'", "").replace('"', ""))
