@@ -5,7 +5,7 @@
 # Set the variables below in your panel's "Environment variables" section.
 services:
   bot:
-    image: ghcr.io/your_github_username/woo-chatwoot-bot:latest   # lowercase username
+    image: ghcr.io/shopjiaexpress-dev/woo-chatwoot-bot:latest
     container_name: woo-chatwoot-bot
     restart: unless-stopped
     ports:
@@ -17,6 +17,7 @@ services:
       SITE_URL: ${SITE_URL}
       SITEMAP_URL: ${SITEMAP_URL:-}
       EXTRA_INSTRUCTIONS: ${EXTRA_INSTRUCTIONS:-}
+      WOO_URL: ${WOO_URL:-}
       WOO_CONSUMER_KEY: ${WOO_CONSUMER_KEY}
       WOO_CONSUMER_SECRET: ${WOO_CONSUMER_SECRET}
       CHATWOOT_URL: ${CHATWOOT_URL}
