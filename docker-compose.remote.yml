@@ -1,11 +1,11 @@
 # Compose file for Docker panels that deploy from a single compose URL
-# (e.g. Hostinger Docker Manager). It builds the image straight from GitHub,
-# so no other files need to be on the server. Repository must be PUBLIC.
+# (e.g. Hostinger Docker Manager). It pulls the ready-made image that the
+# GitHub Action (.github/workflows/docker.yml) builds on every push.
+# The GitHub package must be PUBLIC so the server can pull it.
 # Set the variables below in your panel's "Environment variables" section.
 services:
   bot:
-    build:
-      context: https://github.com/YOUR_GITHUB_USERNAME/woo-chatwoot-bot.git#main
+    image: ghcr.io/your_github_username/woo-chatwoot-bot:latest   # lowercase username
     container_name: woo-chatwoot-bot
     restart: unless-stopped
     ports:
