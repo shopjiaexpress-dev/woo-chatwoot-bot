@@ -31,6 +31,9 @@ SITEMAP_EXCLUDE = _get(
     r"/(cart|checkout|my-account|wp-login|wp-admin|feed|author|tag)(/|$)|\?add-to-cart=",
 )
 PRODUCT_URL_PATTERN = _get("PRODUCT_URL_PATTERN", r"/product/")
+# How product links are shown to customers. {site} = SITE_URL, {slug} = product slug.
+# Headless/Next.js shops: keep the default so links point to the storefront, not WooCommerce.
+PRODUCT_LINK_TEMPLATE = _get("PRODUCT_LINK_TEMPLATE", "{site}/product/{slug}")
 MAX_PAGES = _int("MAX_PAGES", 3000)
 CRAWL_CONCURRENCY = _int("CRAWL_CONCURRENCY", 4)
 SYNC_INTERVAL_HOURS = _int("SYNC_INTERVAL_HOURS", 24)   # 0 = never auto re-sync
@@ -39,6 +42,8 @@ SYNC_INTERVAL_HOURS = _int("SYNC_INTERVAL_HOURS", 24)   # 0 = never auto re-sync
 WOO_URL = (_get("WOO_URL") or SITE_URL).rstrip("/")
 WOO_KEY = _get("WOO_CONSUMER_KEY")
 WOO_SECRET = _get("WOO_CONSUMER_SECRET")
+CURRENCY_SYMBOL = _get("CURRENCY_SYMBOL", "")         # empty = read from WooCommerce
+MAX_PRODUCT_CARDS = _int("MAX_PRODUCT_CARDS", 4)
 
 # --- Chatwoot --------------------------------------------------------------
 CHATWOOT_URL = _get("CHATWOOT_URL").rstrip("/")         # https://chat.yourshop.com

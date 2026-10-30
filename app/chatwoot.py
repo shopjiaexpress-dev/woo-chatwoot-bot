@@ -25,3 +25,10 @@ async def send_message(account_id, conversation_id, content):
 async def handoff(account_id, conversation_id):
     """Pending -> open: the conversation shows up for human agents and the bot goes quiet."""
     return await _post("/%s/conversations/%s/toggle_status" % (account_id, conversation_id), {"status": "open"})
+
+
+async def send_cards(account_id, conversation_id, items):
+    """Product cards (image, title, price, button) - rendered by the Chatwoot website widget."""
+    return await _post("/%s/conversations/%s/messages" % (account_id, conversation_id),
+                       {"content": "Products", "message_type": "outgoing", "private": False,
+                        "content_type": "cards", "content_attributes": {"items": items}})
