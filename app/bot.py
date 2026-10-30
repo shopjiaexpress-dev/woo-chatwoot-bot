@@ -88,6 +88,12 @@ def product_keywords(text, n=2):
     return sorted(words, key=len, reverse=True)[:n]
 
 
+def _agent_hint(reply):
+    if re.search(r"\bagent\b", reply, re.I):
+        return reply
+    return reply + "\n\nType **agent** if you'd like to chat with our team."
+
+
 class Bot:
     def __init__(self, kb, woo, guides=None):
         self.kb = kb
@@ -189,15 +195,16 @@ Rules:
   If the customer asks about one product's details, answer briefly in text and still add its PRODUCTS line.
 - For non-product pages (policies, contact, about), you may use one short markdown link like [Shipping policy](url).
 - Never invent prices, stock, policies, delivery times, discounts or contact details. Live store data overrides website text.
-- If the context does not contain the answer, say you're not sure and offer to connect them with our team.
-- For order tracking, ask for their order number and email (our system will look it up).
+- If the context does not contain the answer, say so briefly and tell them they can type "agent" to chat with our team.
+  Do NOT say you are connecting them - only the customer decides that.
+- Orders: our system looks orders up automatically. If the customer wants order status/tracking, ask for their
+  order number and the email used for the order. Never say you don't have access to orders.
 - GUIDES: if a [GUIDE] in the CONTEXT explains how to do what the customer asks (cancel an order, check order
   status, return an item, etc.), do NOT write the steps yourself - they are sent automatically with screenshots.
   Write ONE short friendly sentence (e.g. "Here's how you can cancel your order:"), then add a LAST line exactly like:
   GUIDE: <id>
   Prefer a matching guide over handing the chat to a human.
-- If the customer is angry, wants a refund/return/cancellation processed and no GUIDE covers it, asks for a human,
-  or you cannot help, reply briefly and end your message with {HANDOFF_MARK}
+- Only if the customer clearly asks to talk to a person/agent/human, reply briefly and end your message with {HANDOFF_MARK}
 - {config.BOT_LANGUAGE_HINT}
 {config.EXTRA_INSTRUCTIONS}
 
@@ -288,9 +295,13 @@ CONTEXT:
                 reply = reply.replace(HANDOFF_MARK, "").strip()
                 if guide:
                     reply = reply or "Here's how:"
-                else:
+                elif config.AUTO_HANDOFF:
                     handoff = True
                     reply = reply or config.HANDOFF_MESSAGE
+                else:
+                    # never move the chat to a human unless the customer asks for one
+                    reply = _agent_hint(re.sub(r"(?i)[^.!?\n]*\b(connect(ing)? you|transfer(ring)? you|hand(ing)? (you )?over|get our team|our team will)\b[^.!?\n]*[.!?]?",
+                                               "", reply).strip() or "Sorry, I couldn't find the answer to that.")
             m = PRODUCTS_LINE_RE.search(reply)
             if m:
                 reply = PRODUCTS_LINE_RE.sub("", reply).strip()
@@ -315,13 +326,12 @@ CONTEXT:
                 reply = ("Here's what I found on our website that may help:\n" +
                          "\n".join("- [%s](%s)" % p for p in pages[:3]))
             else:
-                reply, handoff = config.HANDOFF_MESSAGE, True
-            if not handoff:
-                reply += "\n\nType \"agent\" if you'd like to talk to our team."
+                reply = "Sorry, I couldn't find the answer to that."
+            reply = _agent_hint(reply)
 
         chosen = sorted([s for s in chosen if s in live], key=lambda s: not live[s].get("in_stock", True))
         cards = [self._card(live[s]) for s in chosen[:config.MAX_PRODUCT_CARDS]]
-        reply = storefront_links(reply) or ("Here you go:" if cards else config.HANDOFF_MESSAGE)
+        reply = storefront_links(reply) or ("Here you go:" if cards else _agent_hint("Sorry, I couldn't find that."))
         self._remember(key, "user", text)
         memo = reply + ("\n(Showed products: %s)" % ", ".join(c["title"] for c in cards) if cards else "")
         if guide:

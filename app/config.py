@@ -51,6 +51,8 @@ CHATWOOT_URL = _get("CHATWOOT_URL").rstrip("/")         # https://chat.yourshop.
 CHATWOOT_BOT_TOKEN = _get("CHATWOOT_BOT_TOKEN")
 WEBHOOK_TOKEN = _get("WEBHOOK_TOKEN")                    # secret in the webhook URL
 ADMIN_TOKEN = _get("ADMIN_TOKEN")
+AUTO_HANDOFF = _bool("AUTO_HANDOFF", False)             # true = AI may move a chat to a human by itself
+APP_VERSION = _get("APP_VERSION", "dev")
 ONLY_PENDING = _bool("BOT_ONLY_PENDING", True)           # stay quiet once a human took over
 
 # --- AI providers (tried in this order; first that works wins) -------------

@@ -55,7 +55,7 @@ def _check(token, expected, name):
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "kb": kb.stats(), "woocommerce": woo.enabled, "providers": config.LLM_PROVIDERS}
+    return {"ok": True, "version": config.APP_VERSION, "kb": kb.stats(), "woocommerce": woo.enabled, "providers": config.LLM_PROVIDERS}
 
 
 # ------------------------------------------------------------------ Chatwoot webhook
