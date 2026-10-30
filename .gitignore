@@ -1,0 +1,8 @@
+# secrets - never upload your real .env
+.env
+# runtime data
+data/
+ollama/
+__pycache__/
+*.pyc
+.venv/

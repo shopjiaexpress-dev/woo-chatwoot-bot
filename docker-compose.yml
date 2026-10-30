@@ -1,0 +1,20 @@
+services:
+  bot:
+    build: .
+    container_name: woo-chatwoot-bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    ports:
+      - "8100:8000"          # change to "127.0.0.1:8100:8000" if you put Nginx in front (recommended)
+    mem_limit: 512m
+
+  # Optional: local AI with Ollama. Start with:  docker compose --profile ollama up -d
+  # then set LLM_PROVIDERS=ollama (or gemini,groq,ollama) in .env
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ./ollama:/root/.ollama
