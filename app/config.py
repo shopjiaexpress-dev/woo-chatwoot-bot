@@ -3,7 +3,9 @@ import os
 
 
 def _get(name, default=""):
-    return os.environ.get(name, default).strip()
+    # empty values fall back to the default (Docker panels often pass VAR="")
+    v = (os.environ.get(name) or "").strip()
+    return v or default
 
 
 def _int(name, default):

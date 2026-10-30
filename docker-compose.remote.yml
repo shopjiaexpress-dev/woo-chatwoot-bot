@@ -1,0 +1,37 @@
+# Compose file for Docker panels that deploy from a single compose URL
+# (e.g. Hostinger Docker Manager). It builds the image straight from GitHub,
+# so no other files need to be on the server. Repository must be PUBLIC.
+# Set the variables below in your panel's "Environment variables" section.
+services:
+  bot:
+    build:
+      context: https://github.com/YOUR_GITHUB_USERNAME/woo-chatwoot-bot.git#main
+    container_name: woo-chatwoot-bot
+    restart: unless-stopped
+    ports:
+      - "8100:8000"
+    volumes:
+      - bot-data:/data
+    environment:
+      STORE_NAME: ${STORE_NAME:-My Shop}
+      SITE_URL: ${SITE_URL}
+      SITEMAP_URL: ${SITEMAP_URL:-}
+      EXTRA_INSTRUCTIONS: ${EXTRA_INSTRUCTIONS:-}
+      WOO_CONSUMER_KEY: ${WOO_CONSUMER_KEY}
+      WOO_CONSUMER_SECRET: ${WOO_CONSUMER_SECRET}
+      CHATWOOT_URL: ${CHATWOOT_URL}
+      CHATWOOT_BOT_TOKEN: ${CHATWOOT_BOT_TOKEN:-}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      LLM_PROVIDERS: ${LLM_PROVIDERS:-gemini,groq,openrouter}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-24}
+    mem_limit: 512m
+
+volumes:
+  bot-data:
