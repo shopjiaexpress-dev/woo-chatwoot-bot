@@ -14,6 +14,7 @@ log = logging.getLogger("llm")
 
 # provider -> unix time until which we skip it (after a 429 rate-limit)
 _cooldown = {}
+LAST_ERROR = {}  # shown on /health
 
 
 async def _gemini(system, messages):
@@ -84,8 +85,10 @@ async def chat(system, messages):
             if code == 429:
                 _cooldown[name] = time.time() + 60  # rate limited: skip for a minute
             log.warning("%s failed: HTTP %s %s", name, code, e.response.text[:200])
+            LAST_ERROR["error"] = "%s: HTTP %s %s" % (name, code, e.response.text[:150])
         except RuntimeError as e:  # provider not configured
             log.debug("%s skipped: %s", name, e)
         except Exception as e:
             log.warning("%s failed: %s", name, e)
+            LAST_ERROR["error"] = "%s: %s" % (name, str(e)[:150])
     return None, None

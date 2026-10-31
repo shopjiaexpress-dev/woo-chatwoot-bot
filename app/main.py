@@ -2,13 +2,14 @@
 import asyncio
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
-from . import chatwoot, config
+from . import chatwoot, config, llm
 from .bot import Bot, cards_as_text, storefront_links
 from .guides import Guides
 from .kb import KnowledgeBase
@@ -59,7 +60,26 @@ def _check(token, expected, name):
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "version": config.APP_VERSION, "kb": kb.stats(), "woocommerce": woo.enabled, "providers": config.LLM_PROVIDERS}
+    problems = []
+    if not config.WEBHOOK_TOKEN:
+        problems.append("WEBHOOK_TOKEN is empty - Chatwoot messages are rejected")
+    if not config.CHATWOOT_URL:
+        problems.append("CHATWOOT_URL is empty - the bot can't send replies")
+    if not config.CHATWOOT_BOT_TOKEN:
+        problems.append("CHATWOOT_BOT_TOKEN is empty - the bot can't send replies")
+    if not woo.enabled:
+        problems.append("WooCommerce keys are missing - no prices or order lookups")
+    keys = {"gemini": config.GEMINI_API_KEY, "groq": config.GROQ_API_KEY, "openrouter": config.OPENROUTER_API_KEY,
+            "ollama": "local"}
+    ai_ready = [p for p in config.LLM_PROVIDERS if keys.get(p)]
+    if not ai_ready:
+        problems.append("No AI key set (GEMINI_API_KEY / GROQ_API_KEY) - answers will be links only")
+    return {"ok": not problems, "version": config.APP_VERSION, "problems": problems,
+            "ai_ready": ai_ready, "woocommerce": woo.enabled, "kb": kb.stats(),
+            "last_webhook": chatwoot.STATUS.get("last_webhook", "none received since start"),
+            "last_chatwoot_reply": chatwoot.STATUS.get("last_chatwoot_reply", "none"),
+            "last_chatwoot_error": chatwoot.STATUS.get("last_chatwoot_error"),
+            "last_ai_error": llm.LAST_ERROR.get("error")}
 
 
 # ------------------------------------------------------------------ Chatwoot webhook
@@ -87,7 +107,8 @@ async def _process(event):
             await _send_guide(account_id, conv_id, guide)
         if handoff:
             await chatwoot.handoff(account_id, conv_id)
-    except Exception:
+    except Exception as e:
+        chatwoot.STATUS["last_chatwoot_error"] = "Could not reply: %s: %s" % (type(e).__name__, str(e)[:150])
         log.exception("failed to process webhook")
 
 
@@ -114,6 +135,7 @@ async def _send_guide(account_id, conv_id, guide):
 
 @app.post("/webhook")
 async def webhook(request: Request, background: BackgroundTasks, token: str = ""):
+    chatwoot.STATUS["last_webhook"] = time.strftime("%Y-%m-%d %H:%M:%S") + (" (rejected: wrong token)" if token != config.WEBHOOK_TOKEN else "")
     _check(token, config.WEBHOOK_TOKEN, "WEBHOOK_TOKEN")
     event = await request.json()
     if event.get("event") != "message_created":
@@ -122,6 +144,7 @@ async def webhook(request: Request, background: BackgroundTasks, token: str = ""
         return {"ignored": "not incoming"}
     status = (event.get("conversation") or {}).get("status")
     if config.ONLY_PENDING and status and status != "pending":
+        chatwoot.STATUS["last_webhook"] += " (ignored: conversation is %s, not pending)" % status
         return {"ignored": "human handling"}
     background.add_task(_process, event)  # reply asynchronously so Chatwoot isn't kept waiting
     return {"ok": True}

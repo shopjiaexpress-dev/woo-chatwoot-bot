@@ -1,8 +1,6 @@
-# Compose file for Docker panels that deploy from a single compose URL
-# (e.g. Hostinger Docker Manager). It pulls the ready-made image that the
-# GitHub Action (.github/workflows/docker.yml) builds on every push.
-# The GitHub package must be PUBLIC so the server can pull it.
-# Set the variables below in your panel's "Environment variables" section.
+# Docker Compose for the WooCommerce Chatwoot AI bot (for Docker panels such as Hostinger Docker Manager).
+# It pulls the ready-made image that GitHub Actions builds on every push.
+# Put your values in the panel's "Environment" section. Anything left empty uses the built-in default.
 services:
   bot:
     image: ghcr.io/shopjiaexpress-dev/woo-chatwoot-bot:latest
@@ -11,27 +9,38 @@ services:
     ports:
       - "8100:8000"
     volumes:
-      - bot-data:/data
+      - bot-data:/data          # website index, guides, screenshots, key pages - keep this!
     environment:
-      STORE_NAME: ${STORE_NAME:-My Shop}
-      SITE_URL: ${SITE_URL}
+      # --- Store ---
+      STORE_NAME: ${STORE_NAME:-}
+      SITE_URL: ${SITE_URL:-}
       SITEMAP_URL: ${SITEMAP_URL:-}
       EXTRA_INSTRUCTIONS: ${EXTRA_INSTRUCTIONS:-}
+      # --- WooCommerce ---
       WOO_URL: ${WOO_URL:-}
-      WOO_CONSUMER_KEY: ${WOO_CONSUMER_KEY}
-      WOO_CONSUMER_SECRET: ${WOO_CONSUMER_SECRET}
-      CHATWOOT_URL: ${CHATWOOT_URL}
+      WOO_CONSUMER_KEY: ${WOO_CONSUMER_KEY:-}
+      WOO_CONSUMER_SECRET: ${WOO_CONSUMER_SECRET:-}
+      # --- Chatwoot ---
+      CHATWOOT_URL: ${CHATWOOT_URL:-}
       CHATWOOT_BOT_TOKEN: ${CHATWOOT_BOT_TOKEN:-}
-      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN}
-      ADMIN_TOKEN: ${ADMIN_TOKEN}
-      LLM_PROVIDERS: ${LLM_PROVIDERS:-gemini,groq,openrouter}
+      WEBHOOK_TOKEN: ${WEBHOOK_TOKEN:-}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      # --- AI (free) ---
+      LLM_PROVIDERS: ${LLM_PROVIDERS:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
-      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GROQ_MODEL: ${GROQ_MODEL:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
-      SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-24}
+      # --- Bot behaviour (optional) ---
+      MAX_PRODUCT_CARDS: ${MAX_PRODUCT_CARDS:-}
+      SHOW_PRODUCT_IMAGES: ${SHOW_PRODUCT_IMAGES:-}
+      AUTO_HANDOFF: ${AUTO_HANDOFF:-}
+      HANDOFF_MESSAGE: ${HANDOFF_MESSAGE:-}
+      CURRENCY_SYMBOL: ${CURRENCY_SYMBOL:-}
+      PRODUCT_LINK_TEMPLATE: ${PRODUCT_LINK_TEMPLATE:-}
+      SYNC_INTERVAL_HOURS: ${SYNC_INTERVAL_HOURS:-}
     mem_limit: 512m
 
 volumes:
